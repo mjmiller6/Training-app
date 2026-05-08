@@ -189,7 +189,7 @@ export function generatePlanWorkouts(
               distance: estimateDistance('run', pmDuration),
               intensity: 'threshold',
               description: generateDescription('double-threshold', 'threshold', false, false, 2),
-              session_number: sessionNumber + 0.5,
+              session_number: sessionNumber + 1,
             });
           }
         } else {

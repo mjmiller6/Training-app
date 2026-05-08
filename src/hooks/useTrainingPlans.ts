@@ -74,7 +74,7 @@ export function useTrainingPlans() {
   }
 
   async function createPlan(
-    plan: Omit<TrainingPlan, 'id' | 'user_id' | 'created_at' | 'plan_workouts'>
+    plan: Omit<TrainingPlan, 'id' | 'user_id' | 'created_at' | 'plan_workouts'> & { plan_type?: string; race_type?: string; weekly_template?: any[] }
   ): Promise<{ data: TrainingPlan | null; error: string | null }> {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return { data: null, error: 'Not authenticated' };

@@ -1,222 +1,183 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Switch,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../lib/supabase';
 import { useTrainingPlans } from '../hooks/useTrainingPlans';
+import { generatePlanWorkouts } from '../utils/planGenerator';
 import { COLORS, SPACING, BORDER_RADIUS } from '../theme/colors';
+import { WorkoutType, RaceType, PlanType, DaySchedule } from '../types';
+import { getDisciplineColor, getDisciplineIcon } from '../components/DisciplineIcon';
 
-const DURATION_OPTIONS = [4, 8, 12, 16, 20, 24];
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const TEMPLATES = [
-  {
-    id: 'sprint-beginner',
-    name: 'Sprint Triathlon — Beginner',
-    description: 'A gentle 8-week plan for first-timers. 3-4 sessions per week.',
-    weeks: 8,
-    icon: '🌱',
-  },
-  {
-    id: 'sprint-intermediate',
-    name: 'Sprint Triathlon — Intermediate',
-    description: '10-week plan with brick sessions and tempo work. 5 sessions/week.',
-    weeks: 10,
-    icon: '⚡',
-  },
-  {
-    id: 'olympic',
-    name: 'Olympic Triathlon',
-    description: '16-week structured build for Olympic distance. 5-6 sessions/week.',
-    weeks: 16,
-    icon: '🏅',
-  },
-  {
-    id: 'half-ironman',
-    name: 'Half Ironman 70.3',
-    description: '20-week plan targeting 70.3. High volume with periodization.',
-    weeks: 20,
-    icon: '💪',
-  },
-  {
-    id: 'ironman',
-    name: 'Full Ironman',
-    description: '24-week full Ironman prep. For experienced triathletes.',
-    weeks: 24,
-    icon: '🏆',
-  },
-  {
-    id: 'custom',
-    name: 'Custom Plan',
-    description: 'Build your own plan from scratch. Add workouts week by week.',
-    weeks: 0,
-    icon: '✏️',
-  },
+const RACE_TEMPLATES: { id: RaceType; label: string; emoji: string; weeks: number; desc: string }[] = [
+  { id: 'sprint',        label: 'Sprint',      emoji: '🌱', weeks: 8,  desc: '750m / 20km / 5km · Beginner friendly' },
+  { id: 'olympic',       label: 'Olympic',     emoji: '🏅', weeks: 12, desc: '1.5km / 40km / 10km · Classic distance' },
+  { id: 'half-ironman',  label: '70.3',        emoji: '💪', weeks: 20, desc: '1.9km / 90km / 21km · Half Ironman' },
+  { id: 'ironman',       label: 'Ironman',     emoji: '🏆', weeks: 24, desc: '3.8km / 180km / 42km · Full distance' },
 ];
+
+const DAY_TYPES: { value: WorkoutType | 'rest'; label: string; color: string }[] = [
+  { value: 'rest',             label: 'Rest',   color: COLORS.textMuted },
+  { value: 'swim',             label: '🏊 Swim', color: COLORS.swim },
+  { value: 'bike',             label: '🚴 Bike', color: COLORS.bike },
+  { value: 'run',              label: '🏃 Run',  color: COLORS.run },
+  { value: 'double-threshold', label: '⚡ DT',   color: COLORS.brick },
+];
+
+const STEP_TITLES = ['Race & Type', 'Weekly Schedule', 'Confirm'];
 
 export function CreatePlanScreen() {
   const navigation = useNavigation<any>();
   const { createPlan, setActivePlan } = useTrainingPlans();
 
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [durationWeeks, setDurationWeeks] = useState(12);
-  const [startDate, setStartDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [makeActive, setMakeActive] = useState(true);
+  const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  function selectTemplate(template: (typeof TEMPLATES)[0]) {
-    setSelectedTemplate(template.id);
-    if (!name) setName(template.name);
-    if (!description) setDescription(template.description);
-    if (template.weeks > 0) setDurationWeeks(template.weeks);
+  // Step 1
+  const [raceType, setRaceType] = useState<RaceType>('olympic');
+  const [planType, setPlanType] = useState<PlanType>('standard');
+  const [name, setName] = useState('');
+  const [durationWeeks, setDurationWeeks] = useState(12);
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [makeActive, setMakeActive] = useState(true);
+
+  // Step 2 — weekly schedule (default: rest all days)
+  const [schedule, setSchedule] = useState<(WorkoutType | 'rest')[]>(
+    ['swim', 'run', 'double-threshold', 'bike', 'rest', 'bike', 'run']
+  );
+
+  function setDayType(dayIndex: number, type: WorkoutType | 'rest') {
+    setSchedule(prev => { const s = [...prev]; s[dayIndex] = type; return s; });
+  }
+
+  function selectTemplate(t: typeof RACE_TEMPLATES[0]) {
+    setRaceType(t.id);
+    setDurationWeeks(t.weeks);
+    if (!name) setName(`${t.label} Triathlon Plan`);
   }
 
   async function handleCreate() {
-    if (!name.trim()) {
-      Alert.alert('Required', 'Please enter a plan name.');
-      return;
-    }
-    if (!startDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      Alert.alert('Invalid Date', 'Please enter start date as YYYY-MM-DD.');
-      return;
-    }
+    if (!name.trim()) { Alert.alert('Required', 'Please enter a plan name.'); return; }
+    if (!startDate.match(/^\d{4}-\d{2}-\d{2}$/)) { Alert.alert('Invalid Date', 'Use YYYY-MM-DD format.'); return; }
 
     setSaving(true);
 
-    const { data, error } = await createPlan({
+    const weeklyTemplate: DaySchedule[] = schedule.map((type, i) => ({
+      dayOfWeek: i + 1,
+      type: type as WorkoutType,
+      sessionFocus: type === 'double-threshold' ? 'swim' : undefined,
+    }));
+
+    const { data: planData, error: planError } = await createPlan({
       name: name.trim(),
-      description: description.trim() || undefined,
+      description: `${planType === 'masters' ? 'Masters ' : ''}${RACE_TEMPLATES.find(r => r.id === raceType)?.label ?? raceType} plan`,
       duration_weeks: durationWeeks,
       start_date: startDate,
       is_active: makeActive,
+      plan_type: planType,
+      race_type: raceType,
+      weekly_template: weeklyTemplate,
     });
 
-    if (error) {
-      Alert.alert('Error', error);
+    if (planError || !planData) {
+      Alert.alert('Error', planError ?? 'Could not create plan');
       setSaving(false);
       return;
     }
 
-    if (data && makeActive) {
-      await setActivePlan(data.id);
+    // Generate and insert all plan workouts
+    const generatedWorkouts = generatePlanWorkouts(
+      planData.id, durationWeeks, weeklyTemplate, planType, raceType
+    );
+
+    // Insert in batches of 50
+    for (let i = 0; i < generatedWorkouts.length; i += 50) {
+      const batch = generatedWorkouts.slice(i, i + 50);
+      const { error } = await supabase.from('plan_workouts').insert(batch);
+      if (error) { Alert.alert('Error generating workouts', error.message); setSaving(false); return; }
     }
+
+    if (makeActive) await setActivePlan(planData.id);
 
     setSaving(false);
-
-    if (data) {
-      // Navigate to the new plan's detail screen
-      navigation.replace('PlanDetail', { planId: data.id, planName: data.name });
-    } else {
-      navigation.goBack();
-    }
+    navigation.replace('PlanDetail', { planId: planData.id, planName: planData.name });
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Template picker */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Choose a Template</Text>
-            {TEMPLATES.map((t) => (
-              <TouchableOpacity
-                key={t.id}
-                style={[
-                  styles.templateCard,
-                  selectedTemplate === t.id && styles.templateCardActive,
-                ]}
-                onPress={() => selectTemplate(t)}
-              >
-                <Text style={styles.templateIcon}>{t.icon}</Text>
-                <View style={styles.templateInfo}>
-                  <Text style={styles.templateName}>{t.name}</Text>
-                  <Text style={styles.templateDesc}>{t.description}</Text>
-                  {t.weeks > 0 && (
-                    <Text style={styles.templateWeeks}>{t.weeks} weeks</Text>
-                  )}
-                </View>
-                {selectedTemplate === t.id && (
-                  <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
+  // ── Step renderers ─────────────────────────────────────────────────────────
 
-          {/* Plan details */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Plan Details</Text>
+  function renderStep1() {
+    return (
+      <>
+        <Text style={styles.stepLabel}>Choose Race Distance</Text>
+        {RACE_TEMPLATES.map(t => (
+          <TouchableOpacity
+            key={t.id}
+            style={[styles.templateCard, raceType === t.id && styles.templateCardActive]}
+            onPress={() => selectTemplate(t)}
+          >
+            <Text style={styles.templateEmoji}>{t.emoji}</Text>
+            <View style={styles.templateInfo}>
+              <Text style={styles.templateName}>{t.label}</Text>
+              <Text style={styles.templateDesc}>{t.desc}</Text>
+              <Text style={styles.templateWeeks}>{t.weeks} weeks</Text>
+            </View>
+            {raceType === t.id && <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} />}
+          </TouchableOpacity>
+        ))}
 
-            <Text style={styles.label}>Plan Name</Text>
+        <Text style={[styles.stepLabel, { marginTop: SPACING.lg }]}>Athlete Type</Text>
+        <View style={styles.planTypeRow}>
+          {(['standard', 'masters'] as PlanType[]).map(pt => (
+            <TouchableOpacity
+              key={pt}
+              style={[styles.planTypeCard, planType === pt && styles.planTypeCardActive]}
+              onPress={() => setPlanType(pt)}
+            >
+              <Text style={styles.planTypeEmoji}>{pt === 'standard' ? '⚡' : '🧘'}</Text>
+              <Text style={[styles.planTypeLabel, planType === pt && { color: COLORS.primary }]}>
+                {pt === 'standard' ? 'Standard' : 'Masters (40+)'}
+              </Text>
+              <Text style={styles.planTypeDesc}>
+                {pt === 'standard' ? '3-week build, 1-week recovery' : '2-week build, 1-week recovery\nMore aerobic, less intensity'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[styles.stepLabel, { marginTop: SPACING.lg }]}>Plan Name</Text>
+        <View style={styles.inputWrapper}>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="My Triathlon Plan"
+            placeholderTextColor={COLORS.textMuted}
+          />
+        </View>
+
+        <View style={styles.rowSection}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stepLabel}>Duration</Text>
             <View style={styles.inputWrapper}>
               <TextInput
                 style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="My Triathlon Plan"
+                value={String(durationWeeks)}
+                onChangeText={v => setDurationWeeks(parseInt(v) || durationWeeks)}
+                keyboardType="number-pad"
                 placeholderTextColor={COLORS.textMuted}
               />
-            </View>
-
-            <Text style={[styles.label, { marginTop: SPACING.md }]}>
-              Description <Text style={styles.optional}>optional</Text>
-            </Text>
-            <View style={[styles.inputWrapper, styles.textAreaWrapper]}>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Describe your training goals..."
-                placeholderTextColor={COLORS.textMuted}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
+              <Text style={styles.unit}>wks</Text>
             </View>
           </View>
-
-          {/* Duration */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Duration</Text>
-            <View style={styles.durationRow}>
-              {DURATION_OPTIONS.map((w) => (
-                <TouchableOpacity
-                  key={w}
-                  style={[styles.durationChip, durationWeeks === w && styles.durationChipActive]}
-                  onPress={() => setDurationWeeks(w)}
-                >
-                  <Text
-                    style={[
-                      styles.durationChipText,
-                      durationWeeks === w && styles.durationChipTextActive,
-                    ]}
-                  >
-                    {w}wk
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Start date */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Start Date</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stepLabel}>Start Date</Text>
             <View style={styles.inputWrapper}>
-              <Ionicons name="calendar-outline" size={18} color={COLORS.textMuted} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 value={startDate}
@@ -227,117 +188,276 @@ export function CreatePlanScreen() {
               />
             </View>
           </View>
+        </View>
 
-          {/* Make active toggle */}
-          <View style={styles.toggleRow}>
-            <View>
-              <Text style={styles.label}>Set as Active Plan</Text>
-              <Text style={styles.toggleSubtitle}>This plan will appear on your home screen</Text>
-            </View>
-            <Switch
-              value={makeActive}
-              onValueChange={setMakeActive}
-              trackColor={{ false: COLORS.border, true: COLORS.primary }}
-              thumbColor={COLORS.white}
-            />
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Set as Active Plan</Text>
+          <Switch value={makeActive} onValueChange={setMakeActive}
+            trackColor={{ false: COLORS.border, true: COLORS.primary }}
+            thumbColor={COLORS.white}
+          />
+        </View>
+      </>
+    );
+  }
+
+  function renderStep2() {
+    return (
+      <>
+        <Text style={styles.stepLabel}>Set Your Weekly Training Schedule</Text>
+        <Text style={styles.stepSubLabel}>Tap each day to set your training session. DT = Double Threshold (Norwegian method).</Text>
+
+        {DAYS.map((day, i) => (
+          <View key={day} style={styles.dayRow}>
+            <Text style={styles.dayName}>{day}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTypes}>
+              {DAY_TYPES.map(dt => {
+                const active = schedule[i] === dt.value;
+                return (
+                  <TouchableOpacity
+                    key={dt.value}
+                    style={[styles.dayTypeChip, active && { backgroundColor: `${dt.color}33`, borderColor: dt.color }]}
+                    onPress={() => setDayType(i, dt.value)}
+                  >
+                    <Text style={[styles.dayTypeText, active && { color: dt.color, fontWeight: '700' }]}>
+                      {dt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
+        ))}
 
-          {/* Create button */}
+        <View style={styles.dtInfoBox}>
+          <Text style={styles.dtInfoTitle}>⚡ Double Threshold (DT)</Text>
+          <Text style={styles.dtInfoText}>
+            Norwegian method: AM swim or bike threshold session + PM run threshold session.
+            Only available on Standard plan. Masters athletes should use sparingly.
+          </Text>
+        </View>
+      </>
+    );
+  }
+
+  function renderStep3() {
+    const sessionCount = schedule.filter(s => s !== 'rest').length;
+    const dtCount = schedule.filter(s => s === 'double-threshold').length;
+    const template = RACE_TEMPLATES.find(r => r.id === raceType);
+
+    return (
+      <>
+        <Text style={styles.stepLabel}>Plan Summary</Text>
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Name</Text><Text style={styles.summaryVal}>{name}</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Race</Text><Text style={styles.summaryVal}>{template?.label}</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Type</Text><Text style={styles.summaryVal}>{planType === 'masters' ? 'Masters (40+)' : 'Standard'}</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Duration</Text><Text style={styles.summaryVal}>{durationWeeks} weeks</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Start</Text><Text style={styles.summaryVal}>{startDate}</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Sessions/week</Text><Text style={styles.summaryVal}>{sessionCount + dtCount} ({dtCount > 0 ? `${dtCount} DT days` : 'no DT'})</Text></View>
+          <View style={styles.summaryRow}><Text style={styles.summaryKey}>Total workouts</Text><Text style={styles.summaryVal}>~{(sessionCount + dtCount) * durationWeeks}</Text></View>
+        </View>
+
+        <Text style={[styles.stepLabel, { marginTop: SPACING.lg }]}>Weekly Schedule</Text>
+        {DAYS.map((day, i) => {
+          const type = schedule[i];
+          const dt = DAY_TYPES.find(d => d.value === type);
+          return (
+            <View key={day} style={styles.summaryDayRow}>
+              <Text style={styles.summaryDayName}>{day}</Text>
+              <Text style={[styles.summaryDayType, { color: dt?.color ?? COLORS.textMuted }]}>
+                {dt?.label ?? 'Rest'}
+              </Text>
+            </View>
+          );
+        })}
+
+        <View style={styles.adaptiveInfoBox}>
+          <Ionicons name="pulse" size={18} color={COLORS.primary} />
+          <Text style={styles.adaptiveInfoText}>
+            Adaptive training enabled — after logging workouts with RPE scores, the app will suggest load adjustments each week.
+          </Text>
+        </View>
+      </>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* Progress bar */}
+      <View style={styles.progressBar}>
+        {STEP_TITLES.map((title, i) => (
+          <View key={i} style={styles.progressStep}>
+            <View style={[styles.progressDot, i <= step && styles.progressDotActive]}>
+              {i < step
+                ? <Ionicons name="checkmark" size={12} color={COLORS.white} />
+                : <Text style={styles.progressDotText}>{i + 1}</Text>
+              }
+            </View>
+            <Text style={[styles.progressTitle, i === step && styles.progressTitleActive]}>{title}</Text>
+          </View>
+        ))}
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {step === 0 && renderStep1()}
+          {step === 1 && renderStep2()}
+          {step === 2 && renderStep3()}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Navigation buttons */}
+      <View style={styles.navButtons}>
+        {step > 0 && (
+          <TouchableOpacity style={styles.backBtn} onPress={() => setStep(s => s - 1)}>
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
+        )}
+        {step < 2 ? (
+          <TouchableOpacity style={styles.nextBtn} onPress={() => setStep(s => s + 1)}>
+            <Text style={styles.nextBtnText}>Next →</Text>
+          </TouchableOpacity>
+        ) : (
           <TouchableOpacity
-            style={[styles.createButton, saving && styles.createButtonDisabled]}
+            style={[styles.nextBtn, saving && { opacity: 0.6 }]}
             onPress={handleCreate}
             disabled={saving}
           >
-            {saving ? (
-              <ActivityIndicator color={COLORS.white} />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
-                <Text style={styles.createButtonText}>Create Plan</Text>
-              </>
-            )}
+            {saving
+              ? <ActivityIndicator color={COLORS.white} />
+              : <Text style={styles.nextBtnText}>Generate Plan ✓</Text>
+            }
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { padding: SPACING.lg, paddingBottom: SPACING.xxl },
-  section: { marginBottom: SPACING.lg },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textSecondary,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: SPACING.sm,
-  },
-  templateCard: {
+  progressBar: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    gap: SPACING.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  progressStep: { alignItems: 'center', gap: 4 },
+  progressDot: {
+    width: 24, height: 24, borderRadius: 12,
     backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.sm,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    gap: SPACING.sm,
+    borderWidth: 2, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  progressDotActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  progressDotText: { fontSize: 11, color: COLORS.textMuted, fontWeight: '700' },
+  progressTitle: { fontSize: 11, color: COLORS.textMuted, fontWeight: '500' },
+  progressTitleActive: { color: COLORS.primary, fontWeight: '700' },
+  scroll: { padding: SPACING.lg, paddingBottom: 100 },
+  stepLabel: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: SPACING.sm },
+  stepSubLabel: { fontSize: 13, color: COLORS.textMuted, marginBottom: SPACING.md, marginTop: -SPACING.xs },
+  // Templates
+  templateCard: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginBottom: SPACING.sm,
+    borderWidth: 1.5, borderColor: COLORS.border,
   },
   templateCardActive: { borderColor: COLORS.primary, backgroundColor: `${COLORS.primary}11` },
-  templateIcon: { fontSize: 24 },
+  templateEmoji: { fontSize: 24 },
   templateInfo: { flex: 1 },
-  templateName: { fontSize: 14, fontWeight: '700', color: COLORS.text, marginBottom: 2 },
+  templateName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
   templateDesc: { fontSize: 12, color: COLORS.textSecondary },
   templateWeeks: { fontSize: 11, color: COLORS.primary, fontWeight: '600', marginTop: 2 },
-  label: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SPACING.xs },
-  optional: { fontWeight: '400', color: COLORS.textMuted, fontSize: 12 },
+  // Plan type
+  planTypeRow: { flexDirection: 'row', gap: SPACING.sm },
+  planTypeCard: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  planTypeCardActive: { borderColor: COLORS.primary, backgroundColor: `${COLORS.primary}11` },
+  planTypeEmoji: { fontSize: 24, marginBottom: SPACING.xs },
+  planTypeLabel: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
+  planTypeDesc: { fontSize: 11, color: COLORS.textMuted },
+  // Inputs
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.sm,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: SPACING.md,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.sm,
+    borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
   },
-  inputIcon: { marginRight: SPACING.sm },
   input: { flex: 1, paddingVertical: SPACING.md, color: COLORS.text, fontSize: 15 },
-  textAreaWrapper: { alignItems: 'flex-start', paddingVertical: SPACING.sm },
-  textArea: { minHeight: 72, paddingVertical: SPACING.xs },
-  durationRow: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
-  durationChip: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
-    borderRadius: BORDER_RADIUS.full,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  durationChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  durationChipText: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '600' },
-  durationChipTextActive: { color: COLORS.white },
+  unit: { fontSize: 13, color: COLORS.textMuted },
+  rowSection: { flexDirection: 'row', gap: SPACING.sm },
   toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.lg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginBottom: SPACING.md,
   },
-  toggleSubtitle: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
-  createButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: BORDER_RADIUS.md,
-    paddingVertical: SPACING.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.sm,
+  toggleLabel: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  // Schedule
+  dayRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
-  createButtonDisabled: { opacity: 0.6 },
-  createButtonText: { fontSize: 16, fontWeight: '700', color: COLORS.white },
+  dayName: { width: 36, fontSize: 13, fontWeight: '700', color: COLORS.textSecondary },
+  dayTypes: { flexDirection: 'row', gap: SPACING.xs },
+  dayTypeChip: {
+    paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full, backgroundColor: COLORS.surface,
+    borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  dayTypeText: { fontSize: 12, color: COLORS.textMuted, fontWeight: '500' },
+  dtInfoBox: {
+    backgroundColor: `${COLORS.brick}11`, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginTop: SPACING.md,
+    borderWidth: 1, borderColor: `${COLORS.brick}44`,
+  },
+  dtInfoTitle: { fontSize: 13, fontWeight: '700', color: COLORS.brick, marginBottom: 4 },
+  dtInfoText: { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
+  // Summary
+  summaryCard: {
+    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginBottom: SPACING.sm,
+  },
+  summaryRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: SPACING.xs, borderBottomWidth: 1, borderBottomColor: COLORS.divider,
+  },
+  summaryKey: { fontSize: 13, color: COLORS.textSecondary },
+  summaryVal: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  summaryDayRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: SPACING.xs, paddingHorizontal: SPACING.md,
+  },
+  summaryDayName: { fontSize: 13, color: COLORS.textSecondary },
+  summaryDayType: { fontSize: 13, fontWeight: '600' },
+  adaptiveInfoBox: {
+    flexDirection: 'row', gap: SPACING.sm, alignItems: 'flex-start',
+    backgroundColor: `${COLORS.primary}11`, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginTop: SPACING.lg,
+    borderWidth: 1, borderColor: `${COLORS.primary}33`,
+  },
+  adaptiveInfoText: { flex: 1, fontSize: 12, color: COLORS.textSecondary, lineHeight: 18 },
+  // Nav buttons
+  navButtons: {
+    flexDirection: 'row', gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  backBtn: {
+    flex: 1, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.surface, alignItems: 'center',
+  },
+  backBtnText: { fontSize: 15, fontWeight: '600', color: COLORS.textSecondary },
+  nextBtn: {
+    flex: 2, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.primary, alignItems: 'center',
+  },
+  nextBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.white },
 });

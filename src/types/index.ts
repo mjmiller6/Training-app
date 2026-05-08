@@ -1,4 +1,4 @@
-export type WorkoutType = 'swim' | 'bike' | 'run' | 'brick' | 'rest' | 'double-threshold';
+export type WorkoutType = 'swim' | 'bike' | 'run' | 'brick' | 'rest' | 'double-threshold' | 'strength';
 export type IntensityLevel = 'easy' | 'moderate' | 'threshold' | 'hard' | 'race';
 export type RaceType = 'sprint' | 'olympic' | 'half-ironman' | 'ironman' | 'other';
 export type PlanType = 'standard' | 'masters';

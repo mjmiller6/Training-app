@@ -14,7 +14,7 @@ import type { LogStackParamList } from '../navigation';
 
 type LogWorkoutRouteProp = RouteProp<LogStackParamList, 'LogWorkout'>;
 
-const WORKOUT_TYPES: WorkoutType[] = ['swim', 'bike', 'run', 'brick'];
+const WORKOUT_TYPES: WorkoutType[] = ['swim', 'bike', 'run', 'brick', 'strength'];
 
 const RPE_LABELS: Record<number, { label: string; emoji: string; color: string }> = {
   1:  { label: 'Very Easy',  emoji: '😴', color: '#4CAF50' },

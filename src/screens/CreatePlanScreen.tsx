@@ -223,10 +223,11 @@ export function CreatePlanScreen() {
 
   function renderStep2() {
     const SESSION_TYPES: { value: WorkoutType; label: string; color: string }[] = [
-      { value: 'swim',             label: '🏊 Swim', color: COLORS.swim },
-      { value: 'bike',             label: '🚴 Bike', color: COLORS.bike },
-      { value: 'run',              label: '🏃 Run',  color: COLORS.run },
-      { value: 'double-threshold', label: '⚡ DT',   color: COLORS.brick },
+      { value: 'swim',             label: '🏊 Swim',     color: COLORS.swim },
+      { value: 'bike',             label: '🚴 Bike',     color: COLORS.bike },
+      { value: 'run',              label: '🏃 Run',      color: COLORS.run },
+      { value: 'strength',         label: '🏋️ S&C',      color: '#E91E63' },
+      { value: 'double-threshold', label: '⚡ DT',       color: COLORS.brick },
     ];
 
     return (

@@ -54,8 +54,11 @@ function getDurationForType(
     case 'brick':
       minutes = (base.bike * 0.8 + base.run * 0.4);
       break;
+    case 'strength':
+      minutes = 45; // Standard S&C session
+      break;
     case 'double-threshold':
-      minutes = base.swim * 0.6; // AM session (swim or bike threshold)
+      minutes = base.swim * 0.6;
       break;
     default:
       minutes = 45;
@@ -126,11 +129,11 @@ function generateDescription(
   }
 
   const descs: Record<IntensityLevel, Partial<Record<WorkoutType, string>>> = {
-    easy:      { swim: 'Easy swim — drills + steady aerobic', bike: 'Easy spin — zone 2 aerobic', run: 'Easy run — zone 2, conversational' },
-    moderate:  { swim: 'Moderate swim — steady state + some pace work', bike: 'Tempo ride — zone 3, comfortably hard', run: 'Tempo run — comfortably hard effort' },
-    threshold: { swim: 'Threshold swim — intervals at T-pace', bike: 'Threshold bike — sustained effort at FTP', run: 'Threshold run — lactate threshold pace' },
-    hard:      { swim: 'Hard swim — race pace intervals', bike: 'Hard ride — VO2max efforts', run: 'Hard run — VO2max or race pace' },
-    race:      { swim: 'Race pace swim', bike: 'Race simulation ride', run: 'Race pace run' },
+    easy:      { swim: 'Easy swim — drills + steady aerobic', bike: 'Easy spin — zone 2 aerobic', run: 'Easy run — zone 2, conversational', strength: 'Light S&C — mobility, activation, core' },
+    moderate:  { swim: 'Moderate swim — steady state + some pace work', bike: 'Tempo ride — zone 3, comfortably hard', run: 'Tempo run — comfortably hard effort', strength: 'S&C — strength endurance, functional movements' },
+    threshold: { swim: 'Threshold swim — intervals at T-pace', bike: 'Threshold bike — sustained effort at FTP', run: 'Threshold run — lactate threshold pace', strength: 'S&C — heavy compound lifts, power work' },
+    hard:      { swim: 'Hard swim — race pace intervals', bike: 'Hard ride — VO2max efforts', run: 'Hard run — VO2max or race pace', strength: 'S&C — max strength, explosive work' },
+    race:      { swim: 'Race pace swim', bike: 'Race simulation ride', run: 'Race pace run', strength: 'Race week S&C — activation only' },
   };
 
   return descs[intensity]?.[type] ?? `${intensity} ${type} session`;

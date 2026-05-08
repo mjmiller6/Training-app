@@ -5,8 +5,10 @@ export type PlanType = 'standard' | 'masters';
 
 export interface DaySchedule {
   dayOfWeek: number; // 1=Mon, 7=Sun
-  type: WorkoutType;
-  sessionFocus?: 'swim' | 'bike' | 'run'; // for double-threshold, which is AM session
+  sessions: {
+    type: WorkoutType;
+    sessionFocus?: 'swim' | 'bike' | 'run'; // for double-threshold AM session
+  }[];
 }
 
 export interface Workout {

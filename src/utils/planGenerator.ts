@@ -157,54 +157,49 @@ export function generatePlanWorkouts(
     const volumeMultiplier = getVolumeMultiplier(week, durationWeeks, recovery, planType);
 
     for (const daySchedule of weeklyTemplate) {
-      if (daySchedule.type === 'rest') continue;
+      if (daySchedule.sessions.length === 0) continue;
 
-      const longDay = isLongDay(daySchedule.dayOfWeek, daySchedule.type);
-      const duration = getDurationForType(daySchedule.type, raceType, volumeMultiplier, longDay, planType);
-      const intensity = getIntensity(daySchedule.type, recovery, longDay, planType, weekProgress);
+      daySchedule.sessions.forEach((session, sessionIdx) => {
+        if (session.type === 'rest') return;
 
-      if (daySchedule.type === 'double-threshold') {
-        // AM session — swim or bike threshold
-        const amType: WorkoutType = daySchedule.sessionFocus ?? 'swim';
-        workouts.push({
-          plan_id: planId,
-          week_number: week,
-          day_of_week: daySchedule.dayOfWeek,
-          type: amType,
-          duration: recovery ? Math.round(duration * 0.6) : duration,
-          distance: estimateDistance(amType, duration),
-          intensity: recovery ? 'easy' : 'threshold',
-          description: recovery ? 'Easy recovery swim' : generateDescription('double-threshold', 'threshold', false, false, 1),
-          session_number: 1,
-        });
-        // PM session — run threshold
-        if (!recovery) {
-          const pmDuration = Math.round(duration * 0.7);
+        const longDay = isLongDay(daySchedule.dayOfWeek, session.type);
+        const duration = getDurationForType(session.type, raceType, volumeMultiplier, longDay, planType);
+        const intensity = getIntensity(session.type, recovery, longDay, planType, weekProgress);
+        const sessionNumber = sessionIdx + 1;
+
+        if (session.type === 'double-threshold') {
+          const amType: WorkoutType = session.sessionFocus ?? 'swim';
           workouts.push({
-            plan_id: planId,
-            week_number: week,
-            day_of_week: daySchedule.dayOfWeek,
-            type: 'run',
-            duration: pmDuration,
-            distance: estimateDistance('run', pmDuration),
-            intensity: 'threshold',
-            description: generateDescription('double-threshold', 'threshold', false, false, 2),
-            session_number: 2,
+            plan_id: planId, week_number: week, day_of_week: daySchedule.dayOfWeek,
+            type: amType,
+            duration: recovery ? Math.round(duration * 0.6) : duration,
+            distance: estimateDistance(amType, duration),
+            intensity: recovery ? 'easy' : 'threshold',
+            description: recovery ? 'Easy recovery swim' : generateDescription('double-threshold', 'threshold', false, false, 1),
+            session_number: sessionNumber,
+          });
+          if (!recovery) {
+            const pmDuration = Math.round(duration * 0.7);
+            workouts.push({
+              plan_id: planId, week_number: week, day_of_week: daySchedule.dayOfWeek,
+              type: 'run', duration: pmDuration,
+              distance: estimateDistance('run', pmDuration),
+              intensity: 'threshold',
+              description: generateDescription('double-threshold', 'threshold', false, false, 2),
+              session_number: sessionNumber + 0.5,
+            });
+          }
+        } else {
+          workouts.push({
+            plan_id: planId, week_number: week, day_of_week: daySchedule.dayOfWeek,
+            type: session.type, duration,
+            distance: estimateDistance(session.type, duration),
+            intensity,
+            description: generateDescription(session.type, intensity, longDay, recovery),
+            session_number: sessionNumber,
           });
         }
-      } else {
-        workouts.push({
-          plan_id: planId,
-          week_number: week,
-          day_of_week: daySchedule.dayOfWeek,
-          type: daySchedule.type,
-          duration,
-          distance: estimateDistance(daySchedule.type, duration),
-          intensity,
-          description: generateDescription(daySchedule.type, intensity, longDay, recovery),
-          session_number: 1,
-        });
-      }
+      });
     }
   }
 

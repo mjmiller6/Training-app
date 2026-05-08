@@ -47,13 +47,31 @@ export function CreatePlanScreen() {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [makeActive, setMakeActive] = useState(true);
 
-  // Step 2 — weekly schedule (default: rest all days)
-  const [schedule, setSchedule] = useState<(WorkoutType | 'rest')[]>(
-    ['swim', 'run', 'double-threshold', 'bike', 'rest', 'bike', 'run']
-  );
+  // Step 2 — weekly schedule: each day has an array of sessions
+  const [schedule, setSchedule] = useState<WorkoutType[][]>([
+    ['swim'],           // Mon
+    ['run'],            // Tue
+    ['double-threshold'], // Wed
+    ['bike'],           // Thu
+    [],                 // Fri - rest
+    ['bike'],           // Sat
+    ['run'],            // Sun
+  ]);
 
-  function setDayType(dayIndex: number, type: WorkoutType | 'rest') {
-    setSchedule(prev => { const s = [...prev]; s[dayIndex] = type; return s; });
+  function addSession(dayIndex: number, type: WorkoutType) {
+    setSchedule(prev => {
+      const s = prev.map(d => [...d]);
+      if (!s[dayIndex].includes(type)) s[dayIndex].push(type);
+      return s;
+    });
+  }
+
+  function removeSession(dayIndex: number, type: WorkoutType) {
+    setSchedule(prev => {
+      const s = prev.map(d => [...d]);
+      s[dayIndex] = s[dayIndex].filter(t => t !== type);
+      return s;
+    });
   }
 
   function selectTemplate(t: typeof RACE_TEMPLATES[0]) {
@@ -68,10 +86,12 @@ export function CreatePlanScreen() {
 
     setSaving(true);
 
-    const weeklyTemplate: DaySchedule[] = schedule.map((type, i) => ({
+    const weeklyTemplate: DaySchedule[] = schedule.map((sessions, i) => ({
       dayOfWeek: i + 1,
-      type: type as WorkoutType,
-      sessionFocus: type === 'double-threshold' ? 'swim' : undefined,
+      sessions: sessions.map(type => ({
+        type,
+        sessionFocus: type === 'double-threshold' ? 'swim' : undefined,
+      })),
     }));
 
     const { data: planData, error: planError } = await createPlan({
@@ -202,38 +222,70 @@ export function CreatePlanScreen() {
   }
 
   function renderStep2() {
+    const SESSION_TYPES: { value: WorkoutType; label: string; color: string }[] = [
+      { value: 'swim',             label: '🏊 Swim', color: COLORS.swim },
+      { value: 'bike',             label: '🚴 Bike', color: COLORS.bike },
+      { value: 'run',              label: '🏃 Run',  color: COLORS.run },
+      { value: 'double-threshold', label: '⚡ DT',   color: COLORS.brick },
+    ];
+
     return (
       <>
         <Text style={styles.stepLabel}>Set Your Weekly Training Schedule</Text>
-        <Text style={styles.stepSubLabel}>Tap each day to set your training session. DT = Double Threshold (Norwegian method).</Text>
+        <Text style={styles.stepSubLabel}>
+          Tap a session type to add it to a day. Tap a tag to remove it. You can stack multiple sessions per day.
+        </Text>
 
-        {DAYS.map((day, i) => (
-          <View key={day} style={styles.dayRow}>
-            <Text style={styles.dayName}>{day}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTypes}>
-              {DAY_TYPES.map(dt => {
-                const active = schedule[i] === dt.value;
-                return (
+        {DAYS.map((day, i) => {
+          const daySessions = schedule[i];
+          const isRest = daySessions.length === 0;
+
+          return (
+            <View key={day} style={styles.dayCard}>
+              <View style={styles.dayCardHeader}>
+                <Text style={styles.dayName}>{day}</Text>
+                {isRest && <Text style={styles.restLabel}>Rest</Text>}
+              </View>
+
+              {/* Active sessions — tap to remove */}
+              {daySessions.length > 0 && (
+                <View style={styles.activeSessions}>
+                  {daySessions.map(type => {
+                    const dt = SESSION_TYPES.find(s => s.value === type);
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        style={[styles.activeChip, { backgroundColor: `${dt?.color}33`, borderColor: dt?.color }]}
+                        onPress={() => removeSession(i, type)}
+                      >
+                        <Text style={[styles.activeChipText, { color: dt?.color }]}>{dt?.label}</Text>
+                        <Text style={[styles.activeChipRemove, { color: dt?.color }]}>✕</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Add session buttons */}
+              <View style={styles.addSessionRow}>
+                {SESSION_TYPES.filter(s => !daySessions.includes(s.value)).map(s => (
                   <TouchableOpacity
-                    key={dt.value}
-                    style={[styles.dayTypeChip, active && { backgroundColor: `${dt.color}33`, borderColor: dt.color }]}
-                    onPress={() => setDayType(i, dt.value)}
+                    key={s.value}
+                    style={styles.addChip}
+                    onPress={() => addSession(i, s.value)}
                   >
-                    <Text style={[styles.dayTypeText, active && { color: dt.color, fontWeight: '700' }]}>
-                      {dt.label}
-                    </Text>
+                    <Text style={styles.addChipText}>+ {s.label}</Text>
                   </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        ))}
+                ))}
+              </View>
+            </View>
+          );
+        })}
 
         <View style={styles.dtInfoBox}>
           <Text style={styles.dtInfoTitle}>⚡ Double Threshold (DT)</Text>
           <Text style={styles.dtInfoText}>
-            Norwegian method: AM swim or bike threshold session + PM run threshold session.
-            Only available on Standard plan. Masters athletes should use sparingly.
+            Norwegian method: AM swim/bike threshold + PM run threshold. Can be combined with other sessions.
           </Text>
         </View>
       </>
@@ -241,8 +293,8 @@ export function CreatePlanScreen() {
   }
 
   function renderStep3() {
-    const sessionCount = schedule.filter(s => s !== 'rest').length;
-    const dtCount = schedule.filter(s => s === 'double-threshold').length;
+    const sessionCount = schedule.reduce((sum, day) => sum + day.length, 0);
+    const dtCount = schedule.reduce((sum, day) => sum + day.filter(t => t === 'double-threshold').length, 0);
     const template = RACE_TEMPLATES.find(r => r.id === raceType);
 
     return (
@@ -260,14 +312,26 @@ export function CreatePlanScreen() {
 
         <Text style={[styles.stepLabel, { marginTop: SPACING.lg }]}>Weekly Schedule</Text>
         {DAYS.map((day, i) => {
-          const type = schedule[i];
-          const dt = DAY_TYPES.find(d => d.value === type);
+          const sessions = schedule[i];
+          const SESSION_COLORS: Record<string, string> = {
+            swim: COLORS.swim, bike: COLORS.bike, run: COLORS.run, 'double-threshold': COLORS.brick,
+          };
+          const SESSION_LABELS: Record<string, string> = {
+            swim: '🏊 Swim', bike: '🚴 Bike', run: '🏃 Run', 'double-threshold': '⚡ DT',
+          };
           return (
             <View key={day} style={styles.summaryDayRow}>
               <Text style={styles.summaryDayName}>{day}</Text>
-              <Text style={[styles.summaryDayType, { color: dt?.color ?? COLORS.textMuted }]}>
-                {dt?.label ?? 'Rest'}
-              </Text>
+              <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+                {sessions.length === 0
+                  ? <Text style={styles.summaryDayType}>Rest</Text>
+                  : sessions.map(t => (
+                      <Text key={t} style={[styles.summaryDayType, { color: SESSION_COLORS[t] }]}>
+                        {SESSION_LABELS[t]}
+                      </Text>
+                    ))
+                }
+              </View>
             </View>
           );
         })}
@@ -412,6 +476,29 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: COLORS.border,
   },
   dayTypeText: { fontSize: 12, color: COLORS.textMuted, fontWeight: '500' },
+  // Multi-session day builder
+  dayCard: {
+    backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md, marginBottom: SPACING.sm,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  dayCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.xs },
+  restLabel: { fontSize: 12, color: COLORS.textMuted, fontStyle: 'italic' },
+  activeSessions: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs, marginBottom: SPACING.sm },
+  activeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: SPACING.sm, paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full, borderWidth: 1.5,
+  },
+  activeChipText: { fontSize: 12, fontWeight: '700' },
+  activeChipRemove: { fontSize: 11, fontWeight: '700' },
+  addSessionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  addChip: {
+    paddingHorizontal: SPACING.sm, paddingVertical: 4,
+    borderRadius: BORDER_RADIUS.full, backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  addChipText: { fontSize: 11, color: COLORS.textMuted },
   dtInfoBox: {
     backgroundColor: `${COLORS.brick}11`, borderRadius: BORDER_RADIUS.md,
     padding: SPACING.md, marginTop: SPACING.md,
